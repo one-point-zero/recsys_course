@@ -42,7 +42,13 @@ def jaccard_similarity(a: np.array, b: np.array) -> float:
 
     Это значение в диапазоне [0,1].
     """
-    raise(NotImplementedError("Реализуйте функцию jaccard_similarity"))
+    mask_a = a > 0
+    mask_b = b > 0
+    intersection = np.sum(mask_a & mask_b)
+    union = np.sum(mask_a | mask_b)
+    if union == 0:
+        return 0.0
+    return intersection / union
 
 
 def build_user_user_matrix(user_item_matrix: np.ndarray) -> np.ndarray:
@@ -65,7 +71,15 @@ def build_user_user_matrix(user_item_matrix: np.ndarray) -> np.ndarray:
     Returns:
         Матрица схожести Жаккара (n_users, n_users).
     """
-    raise(NotImplementedError("Реализуйте функцию build_user_user_matrix"))
+
+    X = (user_item_matrix > 0).astype(int)
+    intersection = X @ X.T
+    sums = X.sum(axis=1)
+    union = sums[:, None] + sums[None, :] - intersection
+    np.fill_diagonal(union, 1)
+    np.fill_diagonal(intersection, 1)
+    jaccard_matrix = intersection / union
+    return jaccard_matrix
 
 
 def predict_rating(
@@ -98,8 +112,37 @@ def predict_rating(
     Returns:
         Предсказанный рейтинг (float).
     """
-    raise(NotImplementedError("Реализуйте функцию predict_rating"))
 
+    # Берём все рейтинги фильма item_id от всех пользователей
+    ratings_of_item = user_item_matrix[:, item_id]
+    mask = ratings_of_item > 0
+    if not mask.any():
+        print(f"Никто не оценил фильм {item_id}. Возвращаем 0.0")
+        return 0.0
+    
+    # Берём строку из матрицы схожести, соответствующую активному пользователю
+    sims = user_user_matrix[user_id]
+    filtered_sims = sims[mask] # Схожести только тех, кто оценил фильм
+    filtered_ratings = ratings_of_item[mask] # Рейтинги только тех, кто оценил фильм
+
+    # Сортируем оставшихся по сходству с активным пользователем
+    sorted_indices = np.argsort(filtered_sims)[::-1]
+    k = min(topk, len(sorted_indices)) # Если меньше topk пользователей оценили фильм, берём всех
+    top_k_indices = sorted_indices[:k] # Индексы топ-k наиболее похожих пользователей среди оценивших фильм
+
+    # Выбираем топ-k наиболее похожих и их рейтинги
+    sim_topk = filtered_sims[top_k_indices]
+    rat_topk = filtered_ratings[top_k_indices] # Рейтинги этих топ-k соседей для фильма item_id
+
+    # Предсказываем рейтинг как взвешенное среднее с учетом сходства пользователей
+    weighted_sum = np.sum(sim_topk * rat_topk)
+    sum_sim = np.sum(sim_topk) 
+
+    # Если sum_sim=0 или никто не оценил фильм, возвращаем 0.0
+    if sum_sim == 0:
+        return 0.0
+
+    return float(weighted_sum / sum_sim)
 
 def predict_items_for_user(
     user_id: int,
@@ -133,7 +176,29 @@ def predict_items_for_user(
     Returns:
         Список рекомендованных индексов фильмов (item_id).
     """
-    raise(NotImplementedError("Реализуйте функцию predict_items_for_user"))
+
+    sims = user_user_matrix[user_id]
+    sims_copy = sims.copy()
+    sims_copy[user_id] = -1
+    top_r_indices = np.argsort(sims_copy)[:r] 
+
+    high_rated_items = {}
+    for neighbor_id in top_r_indices:
+        neighbor_ratings = user_item_matrix[neighbor_id]
+        highly_rated = np.where(neighbor_ratings >= 4.0)[0] # Индексы фильмов, оцененных >= 4.0
+        for item_id in highly_rated:
+            high_rated_items.setdefault(item_id, []).append(neighbor_ratings[item_id])
+
+    user_rated = user_item_matrix[user_id] > 0
+    candidate_scores = {
+        item_id: np.mean(ratings)
+        for item_id, ratings in high_rated_items.items()
+        if not user_rated[item_id] # Удаляем фильмы, которые пользователь уже оценил
+    }
+
+    sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
+    recommended_items = [int(item_id) for item_id, score in sorted_candidates[:k]] 
+    return recommended_items
 
 
 if __name__ == "__main__":

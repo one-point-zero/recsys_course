@@ -19,74 +19,73 @@ from utils import load_data
 
 def random_recommend(n_recommendations: int = 10, seed: int = 42) -> list[int]:
     """
-    Рекомендует случайные фильмы из всех доступных.
-
-    Алгоритм:
-    1) Загружаем рейтинговый DataFrame.
-    2) Берём уникальные ID фильмов.
-    3) Случайно выбираем n фильмов без повторов.
-
-    Args:
-        n_recommendations: Количество рекомендаций.
-        seed: Seed для воспроизводимости.
-
-    Returns:
-        Список ID фильмов.
+    Рекомендует случайные фильмы.
     """
     ratings_df, _ = load_data()
     np.random.seed(seed)
-    all_movie_ids = ratings_df["movieId"].unique()
-    recommendations = np.random.choice(
-        all_movie_ids, size=n_recommendations, replace=False
-    )
+    
+    all_movie_ids = ratings_df['movieId'].unique()
+    recommendations = np.random.choice(all_movie_ids, size=n_recommendations, replace=False)
+    
     return recommendations.tolist()
+
 
 
 def top_n_recommend(
     n_recommendations: int = 10, min_ratings: int = 10
 ) -> list[tuple[int, float, int, str]]:
     """
-    Рекомендует самые популярные фильмы по средней оценке и количеству оценок.
-
-    Алгоритм:
-    1) Загружаем данные ratings и movies.
-    2) Группируем по movieId и считаем средний рейтинг и число оценок.
-    3) Фильтруем фильмы с rating_count >= min_ratings.
-    4) Сортируем по avg_rating и rating_count по убыванию.
-    5) Берём top-n и добавляем названия фильмов.
-
-    Args:
-        n_recommendations: Количество рекомендаций.
-        min_ratings: Мин. количество людей, которые оценили фильм.
-
-    Returns:
-        Список кортежей (movieId, avg_rating, rating_count, title).
+    Рекомендует самые популярные фильмы на основе среднего рейтинга и количества оценок.
     """
-    raise(NotImplementedError("Реализуйте функцию top_n_recommend"))
+    ratings_df, movies_df = load_data()
+    
+    # Группировка по movieId и вычисление статистик
+    movie_stats = ratings_df.groupby('movieId').agg(
+        avg_rating=('rating', 'mean'),
+        rating_count=('rating', 'count')
+    ).reset_index()
+    
+    # Фильтрация по минимальному количеству оценок
+    movie_stats = movie_stats[movie_stats['rating_count'] >= min_ratings]
+    
+    # Сортировка: сначала по рейтингу (убывание), затем по количеству оценок (убывание)
+    movie_stats = movie_stats.sort_values(
+        by=['avg_rating', 'rating_count'],
+        ascending=[False, False]
+    ).head(n_recommendations)
+    
+    # Формирование результата
+    top_n_recs = []
+    for _, row in movie_stats.iterrows():
+        movie_id = int(row['movieId'])
+        title = movies_df[movies_df['movieId'] == movie_id]['title'].iloc[0]
+        top_n_recs.append((movie_id, row['avg_rating'], int(row['rating_count']), title))
+    
+    return top_n_recs
+
 
 
 def evaluate_rec_systems(
     user_id: int = 610, n_recommendations: int = 10, random_state: int = 42
 ) -> dict:
     """
-    Оценивает эффективность базовых рекомендательных систем.
-
-    Алгоритм:
-    1) Получаем рекомендации случайных фильмов (random_recommend).
-    2) Получаем рекомендации популярных фильмов (top_n_recommend).
-    3) Берём исторические фильмы, которые пользователь уже оценил.
-    4) Считаем Accuracy как долю рекомендованных фильмов,
-       попавших в те фильмы, которые пользователь посмотрел.
-
-    Args:
-        user_id: ID пользователя.
-        n_recommendations: Количество рекомендаций.
-        random_state: Seed для случайных рекомендаций.
-
-    Returns:
-        Словарь {'random_accuracy', 'popular_accuracy'}.
+    Оценивает эффективность рекомендательной системы.
     """
-    raise(NotImplementedError("Реализуйте функцию evaluate_rec_systems"))
+    ratings_df, _ = load_data()
+    
+    # Фильмы, которые пользователь уже оценил
+    user_rated_movies = ratings_df[ratings_df['userId'] == user_id]['movieId'].tolist()
+    
+    # Случайные рекомендации (БЕЗ исключения фильмов пользователя!)
+    random_recs = random_recommend(n_recommendations=n_recommendations, seed=random_state)
+    random_accuracy = len(set(random_recs) & set(user_rated_movies)) / n_recommendations
+    
+    # Популярные рекомендации
+    popular_recs = top_n_recommend(n_recommendations=n_recommendations, min_ratings=10)
+    popular_recs_ids = [rec[0] for rec in popular_recs]
+    popular_accuracy = len(set(popular_recs_ids) & set(user_rated_movies)) / n_recommendations
+    
+    return {"random_accuracy": random_accuracy, "popular_accuracy": popular_accuracy}
 
 
 if __name__ == "__main__":
