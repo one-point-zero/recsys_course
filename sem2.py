@@ -177,28 +177,34 @@ def predict_items_for_user(
         Список рекомендованных индексов фильмов (item_id).
     """
 
-    sims = user_user_matrix[user_id]
-    sims_copy = sims.copy()
-    sims_copy[user_id] = -1
-    top_r_indices = np.argsort(sims_copy)[:r] 
 
-    high_rated_items = {}
-    for neighbor_id in top_r_indices:
-        neighbor_ratings = user_item_matrix[neighbor_id]
-        highly_rated = np.where(neighbor_ratings >= 4.0)[0] # Индексы фильмов, оцененных >= 4.0
-        for item_id in highly_rated:
-            high_rated_items.setdefault(item_id, []).append(neighbor_ratings[item_id])
+    similarity_row = user_user_matrix[user_id].copy()
+    similarity_row[user_id] = -1
 
-    user_rated = user_item_matrix[user_id] > 0
-    candidate_scores = {
-        item_id: np.mean(ratings)
-        for item_id, ratings in high_rated_items.items()
-        if not user_rated[item_id] # Удаляем фильмы, которые пользователь уже оценил
-    }
+    neighbor_indices = np.argsort(similarity_row)[-r:]
 
-    sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
-    recommended_items = [int(item_id) for item_id, score in sorted_candidates[:k]] 
-    return recommended_items
+    neighbor_ratings = user_item_matrix[neighbor_indices]
+    high_rating_mask = neighbor_ratings >= 4.0
+
+    sum_scores = np.sum(neighbor_ratings * high_rating_mask, axis=0)
+    count_scores = np.sum(high_rating_mask, axis=0)
+
+    avg_ratings = np.zeros_like(sum_scores, dtype=float)
+    valid_items = count_scores > 0
+    avg_ratings[valid_items] = sum_scores[valid_items] / count_scores[valid_items]
+    avg_ratings[~valid_items] = -np.inf
+
+    user_seen_mask = user_item_matrix[user_id] > 0
+    avg_ratings[user_seen_mask] = -np.inf
+
+    
+    sorted_items = sorted(
+        [(i, avg_ratings[i]) for i in range(len(avg_ratings))],
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    return [int(i) for i, _ in sorted_items[:k]]
 
 
 if __name__ == "__main__":
