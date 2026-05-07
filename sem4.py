@@ -73,7 +73,11 @@ class SVDRecommender:
         if k <= 0:
             raise ValueError("k must be positive")
 
-        raise NotImplementedError("Реализуйте восстановление матрицы")
+        k_eff = min(k, self.S.shape[0])
+        U_k = self.U[:, :k_eff]
+        S_k = self.S[:k_eff]
+        V_k = self.V[:k_eff, :]
+        return U_k @ np.diag(S_k) @ V_k
 
     def predict_rating(self, user_id: int, item_id: int, k: int = 20) -> float:
         """
@@ -86,7 +90,9 @@ class SVDRecommender:
         3) Предсказание для пары (user_id, item_id) берём из X_hat.
         4) Обрезаем результат в диапазон [0.0, 5.0].
         """
-        raise NotImplementedError("Реализуйте предсказание рейтинга")
+        X_hat = self._reconstruct_matrix(k)
+        rating = X_hat[user_id, item_id]
+        return float(np.clip(rating, 0.0, 5.0))
 
     def predict_items_for_user(
         self, user_id: int, k: int = 20, n_recommendations: int = 5
@@ -101,7 +107,14 @@ class SVDRecommender:
         4) Сортируем кандидатов по убыванию прогнозного рейтинга.
         5) Возвращаем top-n индексы фильмов.
         """
-        raise NotImplementedError("Реализуйте рекомендацию фильмов")
+        X_hat = self._reconstruct_matrix(k)
+        user_ratings = X_hat[user_id, :].copy()
+
+        rated_items = self.ui_matrix[user_id, :] > 0
+        user_ratings[rated_items] = -np.inf
+
+        top_indices = np.argsort(user_ratings)[::-1][:n_recommendations]
+        return [int(i) for i in top_indices]
 
 
 if __name__ == "__main__":
